@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Responsible Legal‑AI Playground</title>
+  <!-- Bootstrap 5 -->
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+    integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+    crossorigin="anonymous"
+  />
+  <!-- Bootstrap Icons -->
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
+    rel="stylesheet"
+  />
+  <style>
+    :root {
+      --coach-width: 360px;
+    }
+    body { background: #0b1520; }
+    .app-shell { max-width: 1200px; }
+    .card { border: 1px solid rgba(255,255,255,.08); background: #0f1d2a; color: #dbe7f3; }
+    .card-header, .offcanvas, .modal-content { background: #0f1d2a; color: #dbe7f3; }
+    .form-control, .form-select { background: #0b1622; color: #dbe7f3; border-color: rgba(255,255,255,.12); }
+    .form-check-input { background: #0b1622; border-color: rgba(255,255,255,.2); }
+    .btn-primary { background: #2f7dd1; border-color: #2f7dd1; }
+    .btn-outline-light { border-color: rgba(255,255,255,.25); }
+    .badge-bg { background: #102435; }
+    .chat-wrap { height: 55vh; min-height: 420px; overflow-y: auto; }
+    .msg { border-radius: 12px; padding: .75rem .9rem; margin-bottom: .6rem; max-width: 88%; }
+    .msg.user { background: #12324d; margin-left: auto; }
+    .msg.ai { background: #0b1622; border: 1px solid rgba(255,255,255,.08); }
+    .coach { width: var(--coach-width); }
+    .score-ring { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; font-weight: 600; }
+    .disclaimer-sticky { position: sticky; top: .75rem; z-index: 2; }
+    .token-hint { font-variant-numeric: tabular-nums; opacity: .8; }
+    .pill { background: #0b1622; border: 1px solid rgba(255,255,255,.08); border-radius: 999px; padding: .25rem .55rem; font-size: .8rem; }
+    .shadow-soft { box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+    .link-muted { color: #9ab9d6; }
+    .link-muted:hover { color: #c7e2fb; }
+    .redact { filter: blur(3px); transition: filter .2s ease; cursor: pointer; }
+    .redact:hover { filter: none; }
+    .list-compact li { margin-bottom: .25rem; }
+  </style>
+
+  <!--
+  =====================================================================
+  Quick start
+  =====================================================================
+  1) Open this file in a static server (e.g., `npx serve`).
+  2) By default MOCK_MODE=true so you can test UI safely without any API keys.
+  3) To wire a real model, set MOCK_MODE=false below and implement a backend POST /api/chat
+     that accepts {system, messages, controls} and streams or returns {content}.
+
+  Example minimal backend (Node/Express) — do NOT expose API keys in the browser:
+  -------------------------------------------------------------------------------
+  import express from 'express';
+  import fetch from 'node-fetch';
+  const app = express(); app.use(express.json());
+  app.post('/api/chat', async (req, res) => {
+    const { system, messages, controls } = req.body;
+    // Call your LLM provider here; ensure PDPA/PII handling and logging policies.
+    const content = "[server] This is where the real model reply goes.";
+    res.json({ content });
+  });
+  app.listen(8787);
+  -------------------------------------------------------------------------------
+  -->
+</head>
+<body>
+  <div class="container app-shell py-4">
+    <header class="mb-3">
+      <div class="d-flex align-items-center gap-3">
+        <i class="bi bi-shield-check text-primary fs-3"></i>
+        <div>
+          <h1 class="h4 text-white mb-1">Responsible Legal‑AI Playground</h1>
+          <p class="text-secondary mb-0">Safe, coached experiments with GenAI for legal tasks — Singapore context.</p>
+        </div>
+        <div class="ms-auto d-none d-md-block">
+          <span class="pill">Local storage only</span>
+          <span class="pill">Not legal advice</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Disclaimers -->
+    <div class="disclaimer-sticky">
+      <div class="alert alert-warning border-0 shadow-soft" role="alert">
+        <div class="d-flex align-items-start">
+          <i class="bi bi-exclamation-triangle me-2 mt-1"></i>
+          <div>
+            <strong>This is not legal advice.</strong> This tool is for learning. Verify all outputs against primary sources and seek a qualified lawyer for decisions with legal impact.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top: Configuration / Intake Form -->
+    <section class="card mb-4 shadow-soft">
+      <div class="card-header d-flex align-items-center gap-2">
+        <i class="bi bi-gear"></i>
+        <span>Session setup</span>
+        <span class="ms-auto token-hint small text-secondary" id="tokenHint">Ready</span>
+      </div>
+      <div class="card-body">
+        <form id="intakeForm" class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Your role</label>
+            <select class="form-select" id="role" required>
+              <option value="Public user" selected>Public user</option>
+              <option>Business owner</option>
+              <option>Law student</option>
+              <option>Paralegal</option>
+              <option>In‑house counsel</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Jurisdiction</label>
+            <input class="form-control" id="jurisdiction" value="Singapore" />
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Task type</label>
+            <select class="form-select" id="taskType">
+              <option>Research Q&A</option>
+              <option>Summarise case/file</option>
+              <option>Clause extraction</option>
+              <option>Redline & rewrite</option>
+              <option>Chronology building</option>
+              <option>Draft outline</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Topic / question / file context</label>
+            <input class="form-control" id="topic" placeholder="e.g., PDPA obligations for SMEs handling customer data; tenancy clause about break option" />
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Safeguards</label>
+            <div class="d-flex flex-wrap gap-3">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="localOnly" checked>
+                <label class="form-check-label" for="localOnly">Do not send raw text to model (coach‑only until I confirm)</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="maskPII" checked>
+                <label class="form-check-label" for="maskPII">Auto‑mask possible PII before any model call</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="citeRequired" checked>
+                <label class="form-check-label" for="citeRequired">Require citations/authority</label>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Risk posture</label>
+            <select id="risk" class="form-select">
+              <option value="conservative" selected>Conservative</option>
+              <option value="balanced">Balanced</option>
+              <option value="exploratory">Exploratory</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Time horizon</label>
+            <select id="horizon" class="form-select">
+              <option>Learning</option>
+              <option>Drafting today</option>
+              <option>Urgent review</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="ack" />
+              <label class="form-check-label" for="ack">I understand this is an educational tool, not legal advice, and I will verify outputs and seek professional advice when needed.</label>
+            </div>
+          </div>
+          <div class="col-12 d-flex gap-2">
+            <button type="submit" class="btn btn-primary"><i class="bi bi-play-circle me-1"></i> Apply settings</button>
+            <button type="button" id="resetBtn" class="btn btn-outline-light">Reset</button>
+            <button type="button" id="exportBtn" class="btn btn-outline-light ms-auto"><i class="bi bi-download me-1"></i> Export transcript</button>
+            <button type="button" id="purgeBtn" class="btn btn-outline-danger"><i class="bi bi-trash me-1"></i> Clear data</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- Bottom: Chat + Coach -->
+    <section class="row g-4">
+      <div class="col-lg">
+        <div class="card shadow-soft h-100">
+          <div class="card-header d-flex align-items-center gap-2">
+            <i class="bi bi-robot"></i>
+            <span>Coached chatbot</span>
+            <div class="ms-auto d-flex align-items-center gap-3 small text-secondary">
+              <span id="modeBadge" class="pill">Mock mode</span>
+              <a href="#" class="link-muted" data-bs-toggle="offcanvas" data-bs-target="#coachCanvas" aria-controls="coachCanvas"><i class="bi bi-life-preserver me-1"></i>Coach panel</a>
+            </div>
+          </div>
+          <div class="card-body d-flex flex-column">
+            <div id="chat" class="chat-wrap mb-3"></div>
+            <div id="nudges" class="mb-2"></div>
+            <div class="input-group">
+              <input id="userInput" class="form-control" placeholder="Type your message…" />
+              <button id="sendBtn" class="btn btn-primary"><i class="bi bi-send-fill"></i></button>
+            </div>
+            <div class="small text-secondary mt-2" id="footNote">
+              Outputs must include sources and date of authority. Avoid PII. Use this to learn, not to replace professional judgment.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Coach panel (offcanvas) -->
+      <div class="col-lg-auto">
+        <div class="offcanvas-lg offcanvas-end coach shadow-soft" tabindex="-1" id="coachCanvas" aria-labelledby="coachLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="coachLabel">Real‑time coach</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <div class="d-flex align-items-center gap-3 mb-3">
+              <div class="score-ring text-white" id="qualityScore" style="background: conic-gradient(#2f7dd1 0 0, #23384c 0 100%);">–</div>
+              <div>
+                <div class="small text-secondary">Prompt quality</div>
+                <div id="qualitySummary" class="small">Start typing to see feedback.</div>
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <h6 class="mb-2">Checks & nudges</h6>
+              <ul id="checksList" class="list-unstyled list-compact mb-0"></ul>
+            </div>
+
+            <div class="mb-3">
+              <h6 class="mb-2">Safeguards (PDPA & IMDA‑aligned)</h6>
+              <ul class="small text-secondary list-compact">
+                <li>Data minimisation: redact or mask personal identifiers before sending to any model.</li>
+                <li>Transparency: every message includes a prominent “not legal advice” reminder.</li>
+                <li>Human‑in‑the‑loop: verification checklist appended to answers.</li>
+                <li>Traceability: exportable local transcript; no server storage in mock mode.</li>
+              </ul>
+            </div>
+
+            <div class="mb-3">
+              <h6 class="mb-2">Verification checklist template</h6>
+              <ol class="small text-secondary list-compact" id="verifyList">
+                <li>Identify and read the primary authority (Act/Regulation/Case).</li>
+                <li>Check if the law has been amended since the cited version/date.</li>
+                <li>Ensure facts match the question context and jurisdiction.</li>
+                <li>Remove sensitive data before sharing externally.</li>
+                <li>Escalate to a qualified lawyer for complex or high‑risk matters.</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+  <script>
+    // -------------------------
+    // Configuration
+    // -------------------------
+    const MOCK_MODE = true; // set to false when wiring a real backend /api/chat
+
+    const policy = {
+      minWords: 10,
+      requireCitations: true,
+      patterns: {
+        email: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i,
+        phoneSG: /\b\d{8}\b/, // simplistic 8-digit check
+        nric: /\b[STFG]\d{7}[A-Z]\b/i,
+        confidential: /\b(confidential|privileged|do not share|nda)\b/i
+      }
+    };
+
+    const els = {
+      form: document.getElementById('intakeForm'),
+      chat: document.getElementById('chat'),
+      input: document.getElementById('userInput'),
+      send: document.getElementById('sendBtn'),
+      checks: document.getElementById('checksList'),
+      qualityScore: document.getElementById('qualityScore'),
+      qualitySummary: document.getElementById('qualitySummary'),
+      nudges: document.getElementById('nudges'),
+      tokenHint: document.getElementById('tokenHint'),
+      modeBadge: document.getElementById('modeBadge'),
+      exportBtn: document.getElementById('exportBtn'),
+      purgeBtn: document.getElementById('purgeBtn'),
+      resetBtn: document.getElementById('resetBtn'),
+      ack: document.getElementById('ack'),
+      role: document.getElementById('role'),
+      jurisdiction: document.getElementById('jurisdiction'),
+      taskType: document.getElementById('taskType'),
+      topic: document.getElementById('topic'),
+      localOnly: document.getElementById('localOnly'),
+      maskPII: document.getElementById('maskPII'),
+      citeRequired: document.getElementById('citeRequired'),
+      risk: document.getElementById('risk'),
+      horizon: document.getElementById('horizon')
+    };
+
+    // -------------------------
+    // State & Storage
+    // -------------------------
+    const state = {
+      system: '',
+      messages: [],
+      session: {
+        role: 'Public user',
+        jurisdiction: 'Singapore',
+        taskType: 'Research Q&A',
+        topic: '',
+        safeguards: { localOnly: true, maskPII: true, citeRequired: true },
+        risk: 'conservative',
+        horizon: 'Learning',
+        ack: false
+      }
+    };
+
+    const STORAGE_KEY = 'legal_ai_playground_v1';
+
+    function save() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ session: state.session, messages: state.messages }));
+    }
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        if (data.session) Object.assign(state.session, data.session);
+        if (Array.isArray(data.messages)) state.messages = data.messages;
+      } catch {}
+    }
+
+    // -------------------------
+    // Utilities
+    // -------------------------
+    function el(tag, attrs={}, ...children) {
+      const node = document.createElement(tag);
+      Object.entries(attrs).forEach(([k,v]) => {
+        if (k === 'class') node.className = v; else if (k === 'html') node.innerHTML = v; else node.setAttribute(k,v);
+      });
+      for (const c of children) node.append(c);
+      return node;
+    }
+
+    function scrollToEnd() { els.chat.scrollTop = els.chat.scrollHeight; }
+
+    function renderMessages() {
+      els.chat.innerHTML = '';
+      for (const m of state.messages) {
+        const bubble = el('div', { class: `msg ${m.role === 'user' ? 'user' : 'ai'}` });
+        bubble.innerHTML = m.content;
+        els.chat.appendChild(bubble);
+      }
+      scrollToEnd();
+    }
+
+    function addMessage(role, content) {
+      state.messages.push({ role, content });
+      renderMessages();
+      save();
+    }
+
+    function riskChecks(text) {
+      const issues = [];
+      const words = (text.trim().match(/\S+/g) || []).length;
+      if (words < policy.minWords) {
+        issues.push({ type: 'quality', label: 'Very short prompt', hint: 'Add context, constraints, and desired output.' });
+      }
+      if (policy.patterns.email.test(text)) issues.push({ type: 'pii', label: 'Email detected', hint: 'Mask or remove personal emails.' });
+      if (policy.patterns.phoneSG.test(text)) issues.push({ type: 'pii', label: 'Possible SG phone number', hint: 'Avoid sharing contact numbers.' });
+      if (policy.patterns.nric.test(text)) issues.push({ type: 'pii', label: 'Possible NRIC/ID', hint: 'Do not include NRIC. Redact before sending.' });
+      if (policy.patterns.confidential.test(text)) issues.push({ type: 'conf', label: 'Confidentiality terms mentioned', hint: 'Ensure you have permission to process this content.' });
+      if (!/(source|cite|authority|case|act|section|s\.|reg\.|cap\.)/i.test(text) && state.session.safeguards.citeRequired) {
+        issues.push({ type: 'method', label: 'No citation ask', hint: 'Ask for sections/cases and dates of authority.' });
+      }
+      if (!/(jurisdiction|singapore|sg|my|uk|us|eu)/i.test(text)) {
+        issues.push({ type: 'scope', label: 'Jurisdiction not stated', hint: `Specify jurisdiction (e.g., ${state.session.jurisdiction}).` });
+      }
+      return issues;
+    }
+
+    function scoreFromIssues(issues) {
+      let score = 100;
+      for (const i of issues) {
+        if (i.type === 'quality') score -= 20;
+        else if (i.type === 'pii') score -= 25;
+        else if (i.type === 'conf') score -= 15;
+        else score -= 8;
+      }
+      return Math.max(5, Math.min(100, score));
+    }
+
+    function setRing(score) {
+      els.qualityScore.textContent = String(score);
+      els.qualityScore.style.background = `conic-gradient(#2f7dd1 0 ${score}%, #23384c ${score}% 100%)`;
+      els.qualitySummary.textContent = score >= 80 ? 'Good structure. Proceed.' : score >= 60 ? 'Decent, add specifics and sources.' : 'Needs more context and constraints.';
+    }
+
+    function renderChecks(issues) {
+      els.checks.innerHTML = '';
+      for (const i of issues) {
+        const li = el('li', {}, el('span', { class: 'badge rounded-pill text-bg-warning me-2' }, document.createTextNode(i.label)), document.createTextNode(' ' + i.hint));
+        els.checks.appendChild(li);
+      }
+      if (!issues.length) {
+        els.checks.appendChild(el('li', { class: 'text-secondary small' }, document.createTextNode('All good. Include citations and verify authority.')));
+      }
+    }
+
+    function renderNudges(issues) {
+      els.nudges.innerHTML = '';
+      const groups = {
+        danger: issues.filter(x => x.type === 'pii' || x.type === 'conf'),
+        warn: issues.filter(x => x.type !== 'pii' && x.type !== 'conf')
+      };
+      if (groups.danger.length) {
+        const a = el('div', { class: 'alert alert-danger py-2 mb-2' });
+        a.innerHTML = `<i class="bi bi-shield-exclamation me-1"></i> ${groups.danger.map(x=>x.label).join(', ')}. ${groups.danger[0].hint}`;
+        els.nudges.appendChild(a);
+      }
+      if (groups.warn.length) {
+        const w = el('div', { class: 'alert alert-info py-2' });
+        w.innerHTML = `<i class="bi bi-lightbulb me-1"></i> ${groups.warn.map(x=>x.label).join(', ')}. ${groups.warn[0].hint}`;
+        els.nudges.appendChild(w);
+      }
+    }
+
+    function redact(text) {
+      // simple masking for demo purposes
+      return text
+        .replace(policy.patterns.email, (m) => m.replace(/[^@]/g, '•'))
+        .replace(policy.patterns.phoneSG, (m) => '••••' + m.slice(-4))
+        .replace(policy.patterns.nric, () => 'SXXXXXXXA');
+    }
+
+    function buildSystemPrompt() {
+      const s = state.session;
+      const guardrails = [
+        'This is an educational, non-legal-advice assistant. Be explicit that you are not a lawyer.',
+        'Jurisdiction: ' + s.jurisdiction + '. If unsure, ask for the correct jurisdiction.',
+        'When citing authority, name the statute/case, section/paragraph, and indicate the date/year.',
+        'Always provide a "Verification checklist" tailored to the answer.',
+        'If information is missing or outside provided context, say "insufficient basis" and list what is needed.',
+        'Flag potential risks (hallucination risk, out-of-date law risk, confidentiality risk).',
+        'Style: concise, numbered steps, neutral tone, no moralising.',
+        'Never fabricate citations. If you cannot find authority, state that clearly.'
+      ];
+      const task = `User role: ${s.role}. Task type: ${s.taskType}. Topic: ${s.topic || '(to be asked)'}.`;
+      return `You are a responsible legal-AI coach and research assistant. ${task}\n\nGuardrails:\n- ${guardrails.join('\n- ')}\n\nOutput format:\n1) Direct answer (short).\n2) Cited authorities (with links if available).\n3) Limitations & risks.\n4) Verification checklist.`;
+    }
+
+    async function callModel(system, messages) {
+      if (MOCK_MODE) {
+        await new Promise(r => setTimeout(r, 500));
+        const last = messages.filter(m=>m.role==='user').slice(-1)[0]?.content || '';
+        return {
+          content: `<strong>Draft guidance (mock):</strong><br>Based on <em>${state.session.jurisdiction}</em> context and your task <em>${state.session.taskType}</em>, start by defining scope and retrieving primary sources.\n\n<ul><li>Identify governing statute/cases relevant to: <code>${escapeHtml(last).slice(0,120)}</code>…</li><li>Extract sections/clauses and summarise in bullets.</li><li>State assumptions and uncertainties.</li></ul>\n\n<strong>Cited authorities:</strong> Provide Acts/sections once identified.\n\n<strong>Limitations & risks:</strong> Model may be outdated; verify against official sources. Avoid sharing confidential data.\n\n<strong>Verification checklist:</strong> See coach panel and confirm each item before relying on output.`
+        };
+      }
+      // Real backend call
+      const res = await fetch('/api/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ system, messages, controls: { citeRequired: state.session.safeguards.citeRequired, risk: state.session.risk } })
+      });
+      if (!res.ok) throw new Error('Backend error');
+      return res.json();
+    }
+
+    function escapeHtml(str) { return str.replace(/[&<>"]/g, s=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[s])); }
+
+    // -------------------------
+    // Event wiring
+    // -------------------------
+    els.form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      state.session.role = els.role.value;
+      state.session.jurisdiction = els.jurisdiction.value || 'Singapore';
+      state.session.taskType = els.taskType.value;
+      state.session.topic = els.topic.value;
+      state.session.safeguards.localOnly = els.localOnly.checked;
+      state.session.safeguards.maskPII = els.maskPII.checked;
+      state.session.safeguards.citeRequired = els.citeRequired.checked;
+      state.session.risk = els.risk.value;
+      state.session.horizon = els.horizon.value;
+      state.session.ack = els.ack.checked;
+      state.system = buildSystemPrompt();
+      addMessage('ai', `<em>Session updated:</em> ${escapeHtml(state.session.taskType)} on <strong>${escapeHtml(state.session.jurisdiction)}</strong>. Topic: ${escapeHtml(state.session.topic||'—')}.`);
+      save();
+    });
+
+    els.resetBtn.addEventListener('click', () => {
+      localStorage.removeItem(STORAGE_KEY);
+      location.reload();
+    });
+
+    els.purgeBtn.addEventListener('click', () => {
+      state.messages = [];
+      save();
+      renderMessages();
+    });
+
+    els.exportBtn.addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify({ session: state.session, messages: state.messages }, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = 'legal_ai_transcript.json'; a.click();
+      URL.revokeObjectURL(a.href);
+    });
+
+    // Chat send
+    els.send.addEventListener('click', onSend);
+    els.input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); } });
+
+    function onSend() {
+      const text = els.input.value.trim();
+      if (!text) return;
+
+      // Real-time analysis
+      const issues = riskChecks(text);
+      const score = scoreFromIssues(issues);
+      setRing(score);
+      renderChecks(issues);
+      renderNudges(issues);
+
+      // Local-only gate or missing acknowledgement
+      if (state.session.safeguards.localOnly || !state.session.ack) {
+        addMessage('user', escapeHtml(text));
+        addMessage('ai', '<strong>Coach:</strong> Local-only mode or acknowledgement not given. Review the nudges, adjust your prompt, then untick "Do not send raw text" and check the responsibility acknowledgement to proceed.');
+        els.input.value = '';
+        return;
+      }
+
+      // Optional masking
+      const toSend = state.session.safeguards.maskPII ? redact(text) : text;
+
+      addMessage('user', escapeHtml(text));
+      els.input.value = '';
+      const thinkingId = `think-${Date.now()}`;
+      addMessage('ai', `<span id="${thinkingId}"><i class="bi bi-hourglass-split me-1"></i>Thinking…</span>`);
+
+      const system = state.system || buildSystemPrompt();
+      const messages = [ { role: 'system', content: system }, ...state.messages.filter(m=>m.role!=='system'), { role: 'user', content: toSend } ];
+
+      callModel(system, messages).then(({ content }) => {
+        // replace last AI message (thinking)
+        state.messages.pop();
+        addMessage('ai', content + `<div class='small text-secondary mt-2'>Reminder: This is not legal advice. Verify with primary sources.</div>`);
+      }).catch(err => {
+        state.messages.pop();
+        addMessage('ai', `<span class='text-danger'>Error contacting backend.</span>`);
+        console.error(err);
+      });
+    }
+
+    // Live coach on typing
+    els.input.addEventListener('input', (e) => {
+      const text = e.target.value;
+      const issues = riskChecks(text);
+      const score = scoreFromIssues(issues);
+      setRing(score);
+      renderChecks(issues);
+      renderNudges(issues);
+      els.tokenHint.textContent = `${(text.length || 0)} chars`;
+    });
+
+    // -------------------------
+    // Boot
+    // -------------------------
+    function hydrateForm() {
+      els.role.value = state.session.role;
+      els.jurisdiction.value = state.session.jurisdiction;
+      els.taskType.value = state.session.taskType;
+      els.topic.value = state.session.topic;
+      els.localOnly.checked = state.session.safeguards.localOnly;
+      els.maskPII.checked = state.session.safeguards.maskPII;
+      els.citeRequired.checked = state.session.safeguards.citeRequired;
+      els.risk.value = state.session.risk;
+      els.horizon.value = state.session.horizon;
+      els.ack.checked = state.session.ack;
+    }
+
+    (function init(){
+      load();
+      hydrateForm();
+      renderMessages();
+      els.modeBadge.textContent = MOCK_MODE ? 'Mock mode' : 'Live mode';
+      // Welcome tip if first run
+      if (!state.messages.length) {
+        addMessage('ai', 'Welcome. Configure the session above, then type a question below. The coach will flag risks (e.g., PII, missing citations) and provide structured verification steps.');
+      }
+    })();
+  </script>
+</body>
+</html>
