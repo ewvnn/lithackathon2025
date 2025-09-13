@@ -1,6 +1,6 @@
 # Contents
 ## chatbot.py
-This is the chatbot that uses groq's AI api
+This is the chatbot that uses groq's AI api (api key removed for privacy)
 
 ## landingpage.html
 This is the front-end page that end-users access
